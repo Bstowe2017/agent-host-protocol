@@ -1077,7 +1077,7 @@
           "items": {
             "$ref": "#/$defs/CanvasEntry"
           },
-          "description": "Catalog of canvases opened for chats in this session. Presence is\ndurable logical membership, admitted only via `openCanvas` — never\nimplied by a chat's existence or a client's earlier focus. Each entry's\n{@link CanvasIdentity.chat | `identity.chat`} identifies the exact\nbacking chat; a canvas never migrates to a different chat. See\n{@link CanvasEntry} for the full membership/availability/trust model."
+          "description": "Catalog of canvases opened for chats in this session. Presence is\ndurable logical membership, admitted via `openCanvas` or host publication\nof a correlated, already-open native instance under that command's\nadmission rules. Membership is never implied by discovery, subscription,\nsource resolution, a chat's existence, or a client's earlier focus.\nEach entry's {@link CanvasIdentity.chat | `identity.chat`} identifies the\nexact backing chat; a canvas never migrates to a different chat. See\n{@link CanvasEntry} for the full membership/availability/trust model."
         },
         "inputNeeded": {
           "type": "array",
@@ -5883,7 +5883,7 @@
     },
     "CanvasIdentityKey": {
       "type": "object",
-      "description": "The logical identity of a canvas, excluding the host-assigned\n{@link CanvasIdentity.incarnation | `incarnation`}.\n\nTwo canvases are the same logical canvas iff `chat`, `canvasType`,\n`instanceId`, and `source`'s **identity-bearing** fields are all equal:\n`kind` plus `extensionId` (for {@link CanvasExtensionSource}) or `kind`\nplus `sourceId` (for {@link CanvasPackageSource}). `source.version` (and\n`CanvasPackageSource.packageName`) are metadata and MUST NOT factor into\nthis comparison. Clients MUST NOT treat\n{@link CanvasIdentity.instanceId | `instanceId`} alone as a stable key —\nit is only unique within the scope of `(chat, source, canvasType)`.",
+      "description": "The logical identity of a canvas, excluding the host-assigned\n{@link CanvasIdentity.incarnation | `incarnation`}.\n\nTwo canvases are the same logical canvas iff `chat`, `canvasType`,\n`instanceId`, and `source`'s **identity-bearing** fields are all equal:\n`kind` plus `extensionId` (for {@link CanvasExtensionSource}) or `kind`\nplus `sourceId` (for {@link CanvasPackageSource}). `source.version` (and\n`CanvasPackageSource.packageName`) are metadata and MUST NOT factor into\nthis comparison. Clients MUST NOT treat\n{@link CanvasIdentity.instanceId | `instanceId`} alone as a stable key —\nit is only unique within the scope of `(chat, source, canvasType)`.\n\nThis logical tuple does not widen the owning runtime's native instance-ID\nnamespace. A runtime may require session-wide native IDs across providers;\nhosts MUST preserve that constraint rather than hide native collisions\nwith an invented provider namespace.",
       "properties": {
         "chat": {
           "$ref": "#/$defs/URI",
@@ -5931,7 +5931,7 @@
         },
         "incarnation": {
           "type": "string",
-          "description": "Opaque, host-generated token identifying the current generation of this\ncanvas's live endpoint. The host mints a fresh token whenever a provider\nrestart retires the previous live endpoint and establishes a new one for\nthe same logical instance (see {@link CanvasIncarnationChangedAction |\n`canvas/incarnationChanged`}); it is not changed by a plain page reload\nagainst the same still-live endpoint.\n\n`incarnation` is **opaque**: clients and hosts MUST compare it only for\nequality, never parse it, sort it, or perform arithmetic on it (e.g. it\nis not guaranteed to be numeric or monotonically increasing). The host\nMUST NOT reuse a token for this logical identity once it has been\nsuperseded, including across a host/process restart — if the host\ncannot otherwise guarantee non-reuse, it MUST mint tokens (e.g. random\nor timestamp-derived) that make accidental reuse practically\nimpossible, rather than a small resettable counter.\n\nClients and hosts use `incarnation` to reject stale callbacks and\nin-flight effects addressed to a superseded endpoint."
+          "description": "Opaque, host-generated token identifying the current generation of this\ncanvas's live endpoint. The host mints a fresh token whenever a provider\nrestart retires the previous live endpoint and establishes a new one for\nthe same logical instance (see {@link CanvasIncarnationChangedAction |\n`canvas/incarnationChanged`}); it is not changed by a plain page reload\nor transient presentation credential renewal for the same still-live\nendpoint.\n\n`incarnation` is **opaque**: clients and hosts MUST compare it only for\nequality, never parse it, sort it, or perform arithmetic on it (e.g. it\nis not guaranteed to be numeric or monotonically increasing). The host\nMUST NOT reuse a token for this logical identity once it has been\nsuperseded, including across a host/process restart — if the host\ncannot otherwise guarantee non-reuse, it MUST mint tokens (e.g. random\nor timestamp-derived) that make accidental reuse practically\nimpossible, rather than a small resettable counter.\n\nClients and hosts use `incarnation` to reject stale callbacks and\nin-flight effects addressed to a superseded endpoint."
         }
       },
       "required": [
@@ -6033,7 +6033,7 @@
     },
     "CanvasTypeDeclaration": {
       "type": "object",
-      "description": "A canvas type an installed extension or package currently makes available\nto open for a chat, as returned by `listCanvasTypes`.\n\n`CanvasTypeDeclaration` is **discovery-only** metadata about a TYPE — it is\nunrelated to {@link CanvasEntry}, which represents durable membership of\nan already-opened INSTANCE in {@link SessionState.canvases}. Browsing the\ncatalogue (via `listCanvasTypes`) never opens, materializes, or restarts\nanything; only `openCanvas` does.",
+      "description": "A canvas type an installed extension or package currently makes available\nto open for a chat, as returned by `listCanvasTypes`.\n\n`CanvasTypeDeclaration` is **discovery-only** metadata about a TYPE — it is\nunrelated to {@link CanvasEntry}, which represents durable membership of\nan already-opened INSTANCE in {@link SessionState.canvases}. Browsing the\ncatalogue (via `listCanvasTypes`) MUST NOT execute or start a provider,\nor open, materialize, or admit a canvas. Membership requires `openCanvas`\nor host publication of a correlated, already-open native instance under\nthat command's admission rules.",
       "properties": {
         "source": {
           "$ref": "#/$defs/CanvasSource",
@@ -6106,11 +6106,11 @@
       "properties": {
         "url": {
           "type": "string",
-          "description": "Ephemeral URL to the canvas's current live endpoint. Transient — MUST\nNOT be persisted, cached beyond the current read, or treated as a\nstable/durable identity. A host MAY embed short-lived, single-use\ncredentials in it; such credentials are never durable authority."
+          "description": "Ephemeral URL to the canvas's current live endpoint. Transient: MUST\nNOT be persisted (including durable canvas/session state or editor\nrestoration data), written to routine logs, or treated as a stable\nidentity. A host MAY embed\nshort-lived, single-use credentials in it; such credentials are never\ndurable authority. Renewed credentials MAY produce a different URL for\nthe same incarnation and revision. Reuse is safe only while the\ncredential is known to remain valid and reusable."
         },
         "expiresAt": {
           "type": "string",
-          "description": "Advisory expiry hint for `url` (and any embedded credential), if the host bounds their validity."
+          "description": "Advisory expiry hint for `url` (and any embedded credential), when\nknown. Omission does not imply indefinite validity or reusability, and\nan unexpired credential may still be single-use."
         }
       },
       "required": [
@@ -6198,7 +6198,7 @@
     },
     "CanvasEntry": {
       "type": "object",
-      "description": "Lightweight catalog entry for a canvas, carried in\n{@link SessionState.canvases | `SessionState.canvases`}. Presence\nrepresents durable **logical membership** — it is unaffected by the live\n{@link CanvasEntry.availability | `availability`} cycling through\n`notLoaded`/`loading`/`empty`/`ready`/`failed` any number of times.\n\nThe full state, including declared actions, lives in {@link CanvasState},\nloaded when a client subscribes to {@link CanvasEntry.resource}.",
+      "description": "Lightweight catalog entry for a canvas, carried in\n{@link SessionState.canvases | `SessionState.canvases`}. Presence\nrepresents durable **logical membership** — it is unaffected by the live\n{@link CanvasEntry.availability | `availability`} cycling through\n`notLoaded`/`loading`/`empty`/`ready`/`failed` any number of times.\n\nMembership is admitted by `openCanvas` or by host publication of a\ncorrelated, already-open native instance under that command's admission\nrules, never by discovery, subscription, or source resolution.\n\nThe full state, including declared actions, lives in {@link CanvasState},\nloaded when a client subscribes to {@link CanvasEntry.resource}.",
       "properties": {
         "resource": {
           "$ref": "#/$defs/URI",
@@ -6226,7 +6226,7 @@
         },
         "revision": {
           "type": "number",
-          "description": "Monotonically increasing counter bumped on every change to this\ncanvas's state (trust, availability, or incarnation). Clients MAY use it\nto detect and reject stale reads without a full deep comparison."
+          "description": "Monotonically increasing counter bumped on every change to this\ncanvas's state (trust, availability, or incarnation). Clients MAY use it\nto detect and reject stale reads without a full deep comparison.\nTransient presentation credential renewal alone does not require a\nrevision change."
         },
         "_meta": {
           "type": "object",

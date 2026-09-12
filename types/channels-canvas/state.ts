@@ -104,6 +104,11 @@ export type CanvasSource = CanvasExtensionSource | CanvasPackageSource;
  * {@link CanvasIdentity.instanceId | `instanceId`} alone as a stable key —
  * it is only unique within the scope of `(chat, source, canvasType)`.
  *
+ * This logical tuple does not widen the owning runtime's native instance-ID
+ * namespace. A runtime may require session-wide native IDs across providers;
+ * hosts MUST preserve that constraint rather than hide native collisions
+ * with an invented provider namespace.
+ *
  * @category Canvas Identity
  */
 export interface CanvasIdentityKey {
@@ -142,7 +147,8 @@ export interface CanvasIdentity extends CanvasIdentityKey {
    * restart retires the previous live endpoint and establishes a new one for
    * the same logical instance (see {@link CanvasIncarnationChangedAction |
    * `canvas/incarnationChanged`}); it is not changed by a plain page reload
-   * against the same still-live endpoint.
+   * or transient presentation credential renewal for the same still-live
+   * endpoint.
    *
    * `incarnation` is **opaque**: clients and hosts MUST compare it only for
    * equality, never parse it, sort it, or perform arithmetic on it (e.g. it
@@ -255,14 +261,26 @@ export function isCanvasSchemaWithinLimits(
   depth = 1,
 ): boolean {
   const props = schema.properties;
-  if (!props) return true;
-  if (Object.keys(props).length > CANVAS_SCHEMA_MAX_PROPERTIES) return false;
+  if (!props) {
+    return true;
+  }
+  if (Object.keys(props).length > CANVAS_SCHEMA_MAX_PROPERTIES) {
+    return false;
+  }
   for (const value of Object.values(props)) {
-    if (!isRecord(value)) continue;
+    if (!isRecord(value)) {
+      continue;
+    }
     const nestedProperties = value.properties;
-    if (!isRecord(nestedProperties)) continue;
-    if (depth >= CANVAS_SCHEMA_MAX_DEPTH) return false;
-    if (!isCanvasSchemaWithinLimits({ properties: nestedProperties }, depth + 1)) return false;
+    if (!isRecord(nestedProperties)) {
+      continue;
+    }
+    if (depth >= CANVAS_SCHEMA_MAX_DEPTH) {
+      return false;
+    }
+    if (!isCanvasSchemaWithinLimits({ properties: nestedProperties }, depth + 1)) {
+      return false;
+    }
   }
   return true;
 }
@@ -371,8 +389,10 @@ export interface CanvasActionDeclaration {
  * `CanvasTypeDeclaration` is **discovery-only** metadata about a TYPE — it is
  * unrelated to {@link CanvasEntry}, which represents durable membership of
  * an already-opened INSTANCE in {@link SessionState.canvases}. Browsing the
- * catalogue (via `listCanvasTypes`) never opens, materializes, or restarts
- * anything; only `openCanvas` does.
+ * catalogue (via `listCanvasTypes`) MUST NOT execute or start a provider,
+ * or open, materialize, or admit a canvas. Membership requires `openCanvas`
+ * or host publication of a correlated, already-open native instance under
+ * that command's admission rules.
  *
  * @category Canvas State
  */
@@ -435,13 +455,21 @@ export interface CanvasTypeDeclaration {
  */
 export interface CanvasSourcePresentation {
   /**
-   * Ephemeral URL to the canvas's current live endpoint. Transient — MUST
-   * NOT be persisted, cached beyond the current read, or treated as a
-   * stable/durable identity. A host MAY embed short-lived, single-use
-   * credentials in it; such credentials are never durable authority.
+   * Ephemeral URL to the canvas's current live endpoint. Transient: MUST
+   * NOT be persisted (including durable canvas/session state or editor
+   * restoration data), written to routine logs, or treated as a stable
+   * identity. A host MAY embed
+   * short-lived, single-use credentials in it; such credentials are never
+   * durable authority. Renewed credentials MAY produce a different URL for
+   * the same incarnation and revision. Reuse is safe only while the
+   * credential is known to remain valid and reusable.
    */
   url: string;
-  /** Advisory expiry hint for `url` (and any embedded credential), if the host bounds their validity. */
+  /**
+   * Advisory expiry hint for `url` (and any embedded credential), when
+   * known. Omission does not imply indefinite validity or reusability, and
+   * an unexpired credential may still be single-use.
+   */
   expiresAt?: string;
 }
 
@@ -537,6 +565,10 @@ export type CanvasAvailabilityState =
  * {@link CanvasEntry.availability | `availability`} cycling through
  * `notLoaded`/`loading`/`empty`/`ready`/`failed` any number of times.
  *
+ * Membership is admitted by `openCanvas` or by host publication of a
+ * correlated, already-open native instance under that command's admission
+ * rules, never by discovery, subscription, or source resolution.
+ *
  * The full state, including declared actions, lives in {@link CanvasState},
  * loaded when a client subscribes to {@link CanvasEntry.resource}.
  *
@@ -559,6 +591,8 @@ export interface CanvasEntry {
    * Monotonically increasing counter bumped on every change to this
    * canvas's state (trust, availability, or incarnation). Clients MAY use it
    * to detect and reject stale reads without a full deep comparison.
+   * Transient presentation credential renewal alone does not require a
+   * revision change.
    */
   revision: number;
   /** Opaque host-defined summary metadata. */

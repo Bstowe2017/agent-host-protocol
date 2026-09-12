@@ -1688,10 +1688,12 @@ public sealed class SessionState
     public List<Changeset>? Changesets { get; set; }
 
     /// <summary>Catalog of canvases opened for chats in this session. Presence is
-    /// durable logical membership, admitted only via `openCanvas` — never
-    /// implied by a chat's existence or a client's earlier focus. Each entry's
-    /// {@link CanvasIdentity.chat | `identity.chat`} identifies the exact
-    /// backing chat; a canvas never migrates to a different chat. See
+    /// durable logical membership, admitted via `openCanvas` or host publication
+    /// of a correlated, already-open native instance under that command's
+    /// admission rules. Membership is never implied by discovery, subscription,
+    /// source resolution, a chat's existence, or a client's earlier focus.
+    /// Each entry's {@link CanvasIdentity.chat | `identity.chat`} identifies the
+    /// exact backing chat; a canvas never migrates to a different chat. See
     /// {@link CanvasEntry} for the full membership/availability/trust model.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<CanvasEntry>? Canvases { get; set; }
@@ -5585,7 +5587,12 @@ public sealed record CanvasPackageSource
 /// `CanvasPackageSource.packageName`) are metadata and MUST NOT factor into
 /// this comparison. Clients MUST NOT treat
 /// {@link CanvasIdentity.instanceId | `instanceId`} alone as a stable key —
-/// it is only unique within the scope of `(chat, source, canvasType)`.</summary>
+/// it is only unique within the scope of `(chat, source, canvasType)`.
+///
+/// This logical tuple does not widen the owning runtime's native instance-ID
+/// namespace. A runtime may require session-wide native IDs across providers;
+/// hosts MUST preserve that constraint rather than hide native collisions
+/// with an invented provider namespace.</summary>
 public sealed record CanvasIdentityKey
 {
     /// <summary>The exact backing chat this canvas belongs to. A canvas is never
@@ -5634,7 +5641,8 @@ public sealed record CanvasIdentity
     /// restart retires the previous live endpoint and establishes a new one for
     /// the same logical instance (see {@link CanvasIncarnationChangedAction |
     /// `canvas/incarnationChanged`}); it is not changed by a plain page reload
-    /// against the same still-live endpoint.
+    /// or transient presentation credential renewal for the same still-live
+    /// endpoint.
     ///
     /// `incarnation` is **opaque**: clients and hosts MUST compare it only for
     /// equality, never parse it, sort it, or perform arithmetic on it (e.g. it
@@ -5735,6 +5743,10 @@ public sealed record CanvasFailedAvailabilityState
 /// {@link CanvasEntry.availability | `availability`} cycling through
 /// `notLoaded`/`loading`/`empty`/`ready`/`failed` any number of times.
 ///
+/// Membership is admitted by `openCanvas` or by host publication of a
+/// correlated, already-open native instance under that command's admission
+/// rules, never by discovery, subscription, or source resolution.
+///
 /// The full state, including declared actions, lives in {@link CanvasState},
 /// loaded when a client subscribes to {@link CanvasEntry.resource}.</summary>
 public sealed class CanvasEntry
@@ -5760,7 +5772,9 @@ public sealed class CanvasEntry
 
     /// <summary>Monotonically increasing counter bumped on every change to this
     /// canvas's state (trust, availability, or incarnation). Clients MAY use it
-    /// to detect and reject stale reads without a full deep comparison.</summary>
+    /// to detect and reject stale reads without a full deep comparison.
+    /// Transient presentation credential renewal alone does not require a
+    /// revision change.</summary>
     public long Revision { get; set; }
 
     /// <summary>Opaque host-defined summary metadata.</summary>
@@ -5814,8 +5828,10 @@ public sealed class CanvasState
 /// `CanvasTypeDeclaration` is **discovery-only** metadata about a TYPE — it is
 /// unrelated to {@link CanvasEntry}, which represents durable membership of
 /// an already-opened INSTANCE in {@link SessionState.canvases}. Browsing the
-/// catalogue (via `listCanvasTypes`) never opens, materializes, or restarts
-/// anything; only `openCanvas` does.</summary>
+/// catalogue (via `listCanvasTypes`) MUST NOT execute or start a provider,
+/// or open, materialize, or admit a canvas. Membership requires `openCanvas`
+/// or host publication of a correlated, already-open native instance under
+/// that command's admission rules.</summary>
 public sealed record CanvasTypeDeclaration
 {
     /// <summary>The extension or package that declares this canvas type.</summary>
@@ -5872,13 +5888,19 @@ public sealed record CanvasTypeDeclaration
 /// implementation detail outside this protocol.</summary>
 public sealed record CanvasSourcePresentation
 {
-    /// <summary>Ephemeral URL to the canvas's current live endpoint. Transient — MUST
-    /// NOT be persisted, cached beyond the current read, or treated as a
-    /// stable/durable identity. A host MAY embed short-lived, single-use
-    /// credentials in it; such credentials are never durable authority.</summary>
+    /// <summary>Ephemeral URL to the canvas's current live endpoint. Transient: MUST
+    /// NOT be persisted (including durable canvas/session state or editor
+    /// restoration data), written to routine logs, or treated as a stable
+    /// identity. A host MAY embed
+    /// short-lived, single-use credentials in it; such credentials are never
+    /// durable authority. Renewed credentials MAY produce a different URL for
+    /// the same incarnation and revision. Reuse is safe only while the
+    /// credential is known to remain valid and reusable.</summary>
     public required string Url { get; init; }
 
-    /// <summary>Advisory expiry hint for `url` (and any embedded credential), if the host bounds their validity.</summary>
+    /// <summary>Advisory expiry hint for `url` (and any embedded credential), when
+    /// known. Omission does not imply indefinite validity or reusability, and
+    /// an unexpired credential may still be single-use.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? ExpiresAt { get; init; }
 }

@@ -222,10 +222,12 @@ export interface SessionState extends SessionMetadata {
   changesets?: Changeset[];
   /**
    * Catalog of canvases opened for chats in this session. Presence is
-   * durable logical membership, admitted only via `openCanvas` — never
-   * implied by a chat's existence or a client's earlier focus. Each entry's
-   * {@link CanvasIdentity.chat | `identity.chat`} identifies the exact
-   * backing chat; a canvas never migrates to a different chat. See
+   * durable logical membership, admitted via `openCanvas` or host publication
+   * of a correlated, already-open native instance under that command's
+   * admission rules. Membership is never implied by discovery, subscription,
+   * source resolution, a chat's existence, or a client's earlier focus.
+   * Each entry's {@link CanvasIdentity.chat | `identity.chat`} identifies the
+   * exact backing chat; a canvas never migrates to a different chat. See
    * {@link CanvasEntry} for the full membership/availability/trust model.
    */
   canvases?: CanvasEntry[];

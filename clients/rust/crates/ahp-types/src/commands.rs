@@ -1721,11 +1721,13 @@ pub struct FetchAutomationRunsResult {}
 /// Discovers canvas TYPES currently available to open for one exact backing
 /// chat.
 ///
-/// This is a **pure read/browse** operation: it MUST NOT open, materialize,
-/// or otherwise admit any canvas — see `openCanvas` for that. It is
-/// unrelated to {@link SessionState.canvases}, which reflects durable
-/// membership of already-opened canvas INSTANCES, not the set of canvas
-/// TYPES a host/extension could open; do not confuse the two.
+/// This is a **pure read/browse** operation: it MUST NOT execute or start a
+/// provider, or open, materialize, or otherwise admit any canvas. See
+/// `openCanvas` for the admission rules, including publication of an
+/// already-open native instance. This catalogue is unrelated to
+/// {@link SessionState.canvases}, which reflects durable membership of
+/// already-opened canvas INSTANCES, not the set of canvas TYPES a
+/// host/extension could open; do not confuse the two.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ListCanvasTypesParams {
@@ -1765,24 +1767,43 @@ pub struct ListCanvasTypesResult {
 /// given by `identity.chat` at the moment of the call — never with whichever
 /// chat later happens to have focus.
 ///
-/// This is a read-write admission, not a resolve: unlike `subscribe` (which
-/// only reads current state), `openCanvas` is the operation that creates
-/// durable membership. There is no implicit open — a client MUST call this
-/// before a canvas appears in {@link SessionState.canvases}. Once admitted,
-/// clients read and follow live state by `subscribe`-ing to the returned
-/// `canvas.resource`, and resolve the current live endpoint via
-/// `resolveCanvasSource`; neither read itself opens, resumes, or restarts
-/// anything.
+/// Canvas membership requires explicit admission. A client admits a canvas
+/// by calling `openCanvas`, a read-write operation. `listCanvasTypes`,
+/// `subscribe`, and `resolveCanvasSource` MUST NOT admit a canvas or execute
+/// or start its provider.
+///
+/// A host MAY also publish membership after observing an instance already
+/// opened by the owning native runtime. Before publication, the host MUST
+/// correlate the observation to the actual backing chat, canonical source,
+/// canvas type, and native instance, and enforce applicable
+/// execution-admission policy. Uncorrelated or conflicting observations MUST
+/// be rejected rather than assigned to the focused chat or a guessed source.
+/// Observation does not grant execution trust: it MUST NOT convert `pending`
+/// or `blocked` trust to `trusted`; trust and availability remain independent.
+///
+/// Native publication follows the same singular identity-to-resource binding
+/// and authoritative state rules as client-originated admission. The host
+/// MUST NOT manufacture a client `openCanvas` request or invoke the provider's
+/// open handler again merely to publish an already-open instance. Repeated
+/// observations MUST NOT duplicate membership; this does not suppress the
+/// actual effects of a genuinely new native open. Hosts MUST preserve the
+/// native instance-ID namespace, including session-wide IDs across providers
+/// where the owning runtime requires them, rather than hide collisions with
+/// an invented provider namespace. Client `requestId` semantics are unchanged.
+///
+/// Once admitted by either path, clients read and follow live state by
+/// `subscribe`-ing to `canvas.resource`, and resolve the current live endpoint
+/// via `resolveCanvasSource`; neither read opens, resumes, or restarts anything.
 ///
 /// **Logical identity is always singular.** The same {@link CanvasIdentityKey}
 /// (`chat`, `source`, `canvasType`, `instanceId`) always resolves to the same
 /// `canvas` resource URI and the same {@link SessionState.canvases} catalog
-/// entry, no matter how many times `openCanvas` is called for it — the server
-/// MUST return that existing entry's `resource` rather than mint a second
-/// one. A client-supplied `canvas` URI is honored only on the call that first
-/// establishes the identity; on a later call for an already-recorded
-/// identity the server MUST ignore the supplied `canvas` value and return the
-/// existing resource instead.
+/// entry, no matter how many times `openCanvas` is called or a native open is
+/// observed for it. The server MUST reuse that existing entry's `resource`
+/// rather than mint a second one. A client-supplied `canvas` URI is honored
+/// only on the call that first establishes the identity; on a later call for
+/// an already-recorded identity the server MUST ignore the supplied `canvas`
+/// value and return the existing resource instead.
 ///
 /// **Idempotency is scoped to `requestId`, not identity.** Retrying with the
 /// exact same `requestId` and byte-for-byte identical params from the same
@@ -1838,18 +1859,39 @@ pub struct OpenCanvasResult {
     pub canvas: CanvasEntry,
 }
 
-/// Pure, read-only read of a canvas's current live-resolution state and,
-/// when currently live, a transient endpoint presentation.
+/// Reads a canvas's current live-resolution state and, when currently live,
+/// a transient endpoint presentation.
 ///
-/// This MUST NOT create, resume, reopen, or restart a provider. If the
-/// canvas does not currently have a live endpoint, `source` is absent and
-/// `availability` reflects why (e.g. `notLoaded`, `loading`, `failed`) —
-/// call `restartCanvasProvider` (an explicitly effectful operation) to
-/// attempt recovery instead. A client-local page reload (re-navigating the
-/// client's own rendering surface to the same still-live `source.url`)
-/// needs no dedicated command at all; calling `resolveCanvasSource` again is
-/// also how a client retries resolving a currently-unavailable source
-/// without restarting anything.
+/// This is read-only with respect to membership, provider execution/lifecycle,
+/// and durable canvas state. It MUST NOT admit a canvas or create, resume,
+/// reopen, or restart a provider, including on unavailable or unauthorized
+/// requests. Authorization failure MUST NOT expose `source`.
+///
+/// For an already-live endpoint, authorized resolution MAY issue or refresh
+/// transient presentation credentials while constructing the response. Two
+/// resolutions of the same live incarnation MAY therefore return different
+/// URLs. Credential refresh alone MUST NOT rerun provider open, change the
+/// incarnation, or require a canvas state revision. If the live state changes
+/// concurrently during resolution, the response MUST report that state's
+/// current availability, revision, and incarnation; any returned `source`
+/// MUST correspond to that reported state.
+///
+/// Clients MUST NOT replace a newer attachment with a superseded resolution
+/// response, even when credential renewal leaves `revision` and `incarnation`
+/// unchanged. These state guards do not order same-state credential refreshes.
+///
+/// If the canvas does not currently have a live endpoint, `source` is absent
+/// and `availability` reflects why (e.g. `notLoaded`, `loading`, `failed`).
+/// Call `restartCanvasProvider` (an explicitly effectful operation) to
+/// attempt recovery instead; calling `resolveCanvasSource` again only
+/// retries reading the current state without restarting anything.
+///
+/// A client-local page reload needs no provider restart or new effectful
+/// command. Before reload or reattachment, the client SHOULD resolve a fresh
+/// presentation unless the existing credential is known to remain valid and
+/// reusable. An absent expiry hint does not imply indefinite validity or
+/// reusability. Presentation URLs and credentials MUST NOT enter durable
+/// membership, editor restoration data, or routine logs.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResolveCanvasSourceParams {

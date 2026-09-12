@@ -200,11 +200,14 @@ export interface SessionChangesetsChangedAction {
  * server dispatches this with the full entry to record a newly opened
  * canvas, or to republish it after a trust/availability/incarnation change
  * so subscribers following only the session channel stay in sync with
- * {@link CanvasState}. Never client-dispatchable — canvases are admitted
- * only through the `openCanvas` command. A stale/out-of-order delivery
- * (`canvas.revision` not strictly greater than the currently-recorded
- * entry's revision) MUST be rejected (no-op) rather than overwrite a newer
- * entry with older data.
+ * {@link CanvasState}. Never client-dispatchable: admission is through
+ * `openCanvas` or host publication of a correlated, already-open native
+ * instance under that command's admission rules. Both paths MUST use the
+ * same singular identity-to-resource binding; repeated native observations
+ * MUST NOT create a second entry. A stale/out-of-order delivery
+ * (`canvas.revision` not strictly greater than the currently-recorded entry's
+ * revision) MUST be rejected (no-op) rather than overwrite a newer entry with
+ * older data.
  *
  * @category Session Actions
  * @version 1

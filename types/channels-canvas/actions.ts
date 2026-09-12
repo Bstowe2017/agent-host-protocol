@@ -17,8 +17,11 @@ import type { CanvasAvailabilityState, CanvasTrustState } from './state.js';
 /**
  * Replaces the canvas's live resolution state.
  *
- * Dispatched by the host on every availability transition: initial
- * resolution after `openCanvas`, provider restart, reload, and failure.
+ * Dispatched by the host on every availability transition, including
+ * initial resolution after admission by `openCanvas` or a correlated native
+ * open, provider restart, and endpoint failure/recovery. A client-local page
+ * reload or transient presentation credential renewal alone does not require
+ * this action or a revision change.
  *
  * @category Canvas Actions
  * @version 1
@@ -58,6 +61,9 @@ export interface CanvasTrustChangedAction {
 /**
  * Records that the canvas's live endpoint was replaced by a fresh one for
  * the same logical instance (e.g. the owning provider restarted).
+ *
+ * Renewing transient presentation credentials for the same live endpoint is
+ * not endpoint replacement and MUST NOT trigger this action.
  *
  * The host MUST dispatch {@link CanvasAvailabilityChangedAction} to
  * transition through `notLoaded`/`loading` around this change. Receivers

@@ -2172,11 +2172,14 @@ pub struct AutomationRunCancelRequestedAction {}
 /// server dispatches this with the full entry to record a newly opened
 /// canvas, or to republish it after a trust/availability/incarnation change
 /// so subscribers following only the session channel stay in sync with
-/// {@link CanvasState}. Never client-dispatchable — canvases are admitted
-/// only through the `openCanvas` command. A stale/out-of-order delivery
-/// (`canvas.revision` not strictly greater than the currently-recorded
-/// entry's revision) MUST be rejected (no-op) rather than overwrite a newer
-/// entry with older data.
+/// {@link CanvasState}. Never client-dispatchable: admission is through
+/// `openCanvas` or host publication of a correlated, already-open native
+/// instance under that command's admission rules. Both paths MUST use the
+/// same singular identity-to-resource binding; repeated native observations
+/// MUST NOT create a second entry. A stale/out-of-order delivery
+/// (`canvas.revision` not strictly greater than the currently-recorded entry's
+/// revision) MUST be rejected (no-op) rather than overwrite a newer entry with
+/// older data.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionCanvasSetAction {
@@ -2198,8 +2201,11 @@ pub struct SessionCanvasRemovedAction {
 
 /// Replaces the canvas's live resolution state.
 ///
-/// Dispatched by the host on every availability transition: initial
-/// resolution after `openCanvas`, provider restart, reload, and failure.
+/// Dispatched by the host on every availability transition, including
+/// initial resolution after admission by `openCanvas` or a correlated native
+/// open, provider restart, and endpoint failure/recovery. A client-local page
+/// reload or transient presentation credential renewal alone does not require
+/// this action or a revision change.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CanvasAvailabilityChangedAction {
@@ -2229,6 +2235,9 @@ pub struct CanvasTrustChangedAction {
 
 /// Records that the canvas's live endpoint was replaced by a fresh one for
 /// the same logical instance (e.g. the owning provider restarted).
+///
+/// Renewing transient presentation credentials for the same live endpoint is
+/// not endpoint replacement and MUST NOT trigger this action.
 ///
 /// The host MUST dispatch {@link CanvasAvailabilityChangedAction} to
 /// transition through `notLoaded`/`loading` around this change. Receivers
